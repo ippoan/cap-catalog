@@ -9,8 +9,10 @@ name: Catalog Build & Upload (R2)
 #   cap-catalog/v1/latest.jsonl              ← 非 sqlite consumer 用、aggregate JSONL
 #
 # Trigger:
+#   - workflow_run (= cap-catalog 自身の Catalog Extract が main で success した直後に
+#     auto-chain。これにより merge → R2 反映 の lag が ~分単位に縮む)
 #   - workflow_dispatch (= 任意タイミングで手動 build)
-#   - schedule (毎日 03:00 UTC = 12:00 JST、CI で各 repo の caller が走った後を狙う)
+#   - schedule (毎日 03:00 UTC = 12:00 JST、catch-up / 他 caller repo の extract 取り込み用)
 #
 # **必須 secret (user 側 setup):**
 #   - CAP_CATALOG_R2_TOKEN  — R2:Edit 権限の Cloudflare API token (org-level secret)
@@ -20,6 +22,14 @@ name: Catalog Build & Upload (R2)
 # Detect step が configured=false を立てて upload step は skip (build only)。
 
 on:
+  workflow_run:
+    # Catalog Extract (self) が **main で success** した時に auto-chain する。
+    # `workflow_run` は default branch 上の workflow からしか起動しないので、
+    # PR run では走らない (= staging 漏れ無し)。本 workflow 内の
+    # `if: github.event.workflow_run.conclusion == 'success'` で念のため再確認。
+    workflows: ['Catalog Extract (self)']
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -44,6 +54,11 @@ jobs:
   build:
     name: build + upload
     runs-on: ubuntu-latest
+    # workflow_run trigger は **conclusion 問わず** 起動するので、ここで
+    # success のみに絞る (= 失敗した extract で stale artifact を upload しない)。
+    # workflow_dispatch / schedule では `workflow_run` event ではないので
+    # `conclusion` が undefined → 評価が true になり通常通り走る。
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
 
