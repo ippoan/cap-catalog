@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/cap-catalog-schema",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ippoan/cap-catalog"
+rust-version = "1.80"
+
+[workspace.dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
