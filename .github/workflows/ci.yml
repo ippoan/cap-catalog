@@ -42,3 +42,23 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 tests/test_extract_rust.py
+
+  # CI 完走後に auto-merge を queue (rust-alc-api#427 pattern)。reusable は
+  # branch protection の required check を信頼するので caller 側は ci /
+  # schema-smoke / extract-rust-test の全 success を `needs:` で gate する。
+  # 将来 deploy job (R2 upload 等) が増えたら #391 / #405 を踏まえて needs: に
+  # 入れること (= cutover cancel 防止)。
+  auto-merge:
+    name: Auto Merge
+    needs: [ci, schema-smoke, extract-rust-test]
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      needs.ci.result == 'success' &&
+      needs.schema-smoke.result == 'success' &&
+      needs.extract-rust-test.result == 'success'
+    uses: ippoan/ci-workflows/.github/workflows/auto-merge.yml@main
+    permissions:
+      contents: write
+      pull-requests: write
+    secrets: inherit
