@@ -74,15 +74,42 @@ jobs:
         run: cargo build --release --locked -p cap-catalog-builder
 
       # 各 caller repo の最新成功 run から `catalog-extract` artifact を pull する。
-      # MVP では cap-catalog 自身のみ caller (rust-flickr / auth-worker は後段で追加)。
-      # 後で REPOS を YAML matrix 化する想定 — 今は inline。
+      # caller リストは ci-dashboard `/ci-matrix?format=json` (Refs ippoan/ci-dashboard#398
+      # / #399) から動的に取得し、`cap_catalog_covered=true` の repo を列挙する。
+      # = caller 投入 → 自動 builder 取り込み が一気通貫になる (Refs #32)。
+      # /ci-matrix fetch 失敗時は cap-catalog 自身だけにフォールバック (= 旧 MVP 挙動)。
+      - name: Resolve caller repos
+        id: callers
+        env:
+          CI_MATRIX_URL: 'https://ci-dashboard.ippoan.org/ci-matrix?format=json'
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/cap-catalog-builder
+          REPOS_FILE=/tmp/cap-catalog-builder/repos.txt
+          if curl -fsSL --max-time 30 "$CI_MATRIX_URL" \
+            | jq -er '.repos[] | select(.cap_catalog_covered) | "\(.owner)/\(.name)"' \
+            > "$REPOS_FILE"; then
+            n=$(wc -l < "$REPOS_FILE")
+            echo "resolved $n caller repos from /ci-matrix?format=json"
+            echo "source=ci-matrix" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::failed to fetch $CI_MATRIX_URL — fallback to inline cap-catalog only"
+            echo 'ippoan/cap-catalog' > "$REPOS_FILE"
+            echo "source=fallback" >> "$GITHUB_OUTPUT"
+          fi
+          echo "repos_file=$REPOS_FILE" >> "$GITHUB_OUTPUT"
+          echo "--- caller repos ---"
+          cat "$REPOS_FILE"
+
       - name: Download catalog-extract artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOS_FILE: ${{ steps.callers.outputs.repos_file }}
         run: |
           set -euo pipefail
           mkdir -p extracts
-          for REPO in "ippoan/cap-catalog"; do
+          while IFS= read -r REPO; do
+            [ -z "$REPO" ] && continue
             echo "::group::pull from $REPO"
             RUN_ID=$(gh run list \
               --repo "$REPO" \
@@ -106,7 +133,7 @@ jobs:
             echo "  artifact lines:"
             wc -l "$DEST"/*.jsonl 2>/dev/null || echo "  (no jsonl)"
             echo "::endgroup::"
-          done
+          done < "$REPOS_FILE"
 
       - name: Build catalog.sqlite
         run: |
