@@ -40,29 +40,38 @@ from typing import Iterable, Iterator
 
 FEATURE_RE = re.compile(r"@feature:\s*([^\n\r]+)", re.IGNORECASE)
 
+# rustdoc Item kind を symbols.kind に揃える alias 表。
+KIND_ALIASES: dict[str, str] = {
+    "function": "fn",
+    "method": "fn",
+    "struct": "struct",
+    "enum": "enum",
+    "trait": "trait",
+    "module": "module",
+    "type_alias": "type",
+    "typedef": "type",
+    "constant": "const",
+    "static": "static",
+    "macro": "macro",
+    "proc_macro": "macro",
+    "union": "union",
+    "trait_alias": "trait",
+}
+
+# 「カタログに載せる」kind の white-list (alias 後の値)。これに無い kind の item
+# はカタログに乗らない:
+#   - struct_field / variant / assoc_const / assoc_type — 親 item に従属する内部要素
+#   - impl / primitive / extern_crate — symbol search の対象外
+#   - derive macro が展開した synthetic method (rustdoc は `inner.function` で出す
+#     が、`paths` に entry を持たないため後段の fq_path フィルタで落ちる)
+KIND_ALLOWED: frozenset[str] = frozenset(
+    {"fn", "struct", "enum", "trait", "module", "type", "const", "static", "macro", "union"}
+)
+
 
 def map_kind(rustdoc_kind: str) -> str:
     """Map rustdoc Item kind → cap-catalog symbols.kind."""
-    aliases = {
-        "function": "fn",
-        "method": "fn",
-        "struct": "struct",
-        "enum": "enum",
-        "trait": "trait",
-        "module": "module",
-        "type_alias": "type",
-        "typedef": "type",
-        "constant": "const",
-        "static": "static",
-        "macro": "macro",
-        "proc_macro": "macro",
-        "union": "union",
-        "impl": "impl",
-        "trait_alias": "trait",
-        "primitive": "primitive",
-        "extern_crate": "crate",
-    }
-    return aliases.get(rustdoc_kind, rustdoc_kind)
+    return KIND_ALIASES.get(rustdoc_kind, rustdoc_kind)
 
 
 def extract_features(docs: str | None) -> list[str]:
@@ -81,9 +90,6 @@ def iter_items(rustdoc: dict) -> Iterator[dict]:
     """Yield normalized item dicts from one rustdoc JSON document."""
     index = rustdoc.get("index", {})
     paths = rustdoc.get("paths", {})
-    root_id = rustdoc.get("root")
-    root_path = paths.get(root_id, {}).get("path", []) if root_id else []
-    crate_name = root_path[0] if root_path else None
 
     for item_id, item in index.items():
         # skip non-local (= dep) items: rustdoc emits them in index but with crate_id != 0
@@ -108,13 +114,21 @@ def iter_items(rustdoc: dict) -> Iterator[dict]:
             else:
                 kind_raw = "unknown"
         kind = map_kind(kind_raw)
+        if kind not in KIND_ALLOWED:
+            # struct_field / variant / assoc_const / assoc_type / impl 等を弾く
+            continue
 
-        # fq_path
-        path_entry = paths.get(item_id, {})
+        # fq_path は **rustdoc paths テーブルに登録された item に限る**。
+        # `paths` は「外から呼べる top-level item」のみを含むため、impl 内の
+        # method や derive macro 展開で生成された synthetic 関数は登録されない
+        # → ここで自然に落ちる (= catalog から noise が消える)。
+        path_entry = paths.get(item_id)
+        if not path_entry:
+            continue
         path_segments = path_entry.get("path") or []
-        if not path_segments and crate_name:
-            path_segments = [crate_name, name]
-        fq_path = "::".join(path_segments) if path_segments else name
+        if not path_segments:
+            continue
+        fq_path = "::".join(path_segments)
 
         # span
         span = item.get("span") or {}
