@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/cap-catalog-schema",
+    "crates/cap-catalog-builder",
     "crates/cap-cli",
 ]
 
