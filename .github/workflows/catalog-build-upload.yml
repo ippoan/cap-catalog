@@ -1,0 +1,180 @@
+name: Catalog Build & Upload (R2)
+
+# ippoan/cap-catalog#1 #7 R2 配布 — 各 caller repo の catalog-extract artifact を
+# 集約 → cap-catalog-build で catalog.sqlite を build → Cloudflare R2 に upload。
+#
+# R2 配置 (schema_version=1):
+#   cap-catalog/v1/latest.sqlite             ← consumer (cap CLI / ci-dashboard) が引く
+#   cap-catalog/v1/<build_date>.sqlite       ← 履歴 (rollback 用)
+#   cap-catalog/v1/latest.jsonl              ← 非 sqlite consumer 用、aggregate JSONL
+#
+# Trigger:
+#   - workflow_dispatch (= 任意タイミングで手動 build)
+#   - schedule (毎日 03:00 UTC = 12:00 JST、CI で各 repo の caller が走った後を狙う)
+#
+# **必須 secrets (user 側 setup):**
+#   - CLOUDFLARE_API_TOKEN  — R2:Edit 権限の token (Cloudflare Dashboard で発行)
+#   - CLOUDFLARE_ACCOUNT_ID — Account ID
+#   - CAP_CATALOG_R2_BUCKET — R2 bucket 名 (default: `cap-catalog`)
+#
+# secrets / vars が未設定なら upload step は `secret-verify-gate` で early skip
+# (= 開発中は build まで走らせて upload は飛ばす)。
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Skip R2 upload (= build + sanity check のみ)'
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: '0 3 * * *'  # 12:00 JST
+
+permissions:
+  contents: read
+  actions: read  # 兄弟 workflow の artifact を download するため
+
+env:
+  SCHEMA_VERSION: '1'
+  BUCKET: ${{ vars.CAP_CATALOG_R2_BUCKET || 'cap-catalog' }}
+
+jobs:
+  build:
+    name: build + upload
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cap-catalog-builder
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Build cap-catalog-build (release)
+        run: cargo build --release --locked -p cap-catalog-builder
+
+      # 各 caller repo の最新成功 run から `catalog-extract` artifact を pull する。
+      # MVP では cap-catalog 自身のみ caller (rust-flickr / auth-worker は後段で追加)。
+      # 後で REPOS を YAML matrix 化する想定 — 今は inline。
+      - name: Download catalog-extract artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p extracts
+          for REPO in "ippoan/cap-catalog"; do
+            echo "::group::pull from $REPO"
+            RUN_ID=$(gh run list \
+              --repo "$REPO" \
+              --workflow catalog-extract.yml \
+              --branch main \
+              --status success \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // empty')
+            if [ -z "$RUN_ID" ]; then
+              echo "::warning::no successful run for $REPO catalog-extract.yml on main — skip"
+              echo "::endgroup::"
+              continue
+            fi
+            DEST="extracts/$(echo "$REPO" | tr '/' '_')"
+            mkdir -p "$DEST"
+            gh run download "$RUN_ID" \
+              --repo "$REPO" \
+              --name catalog-extract \
+              --dir "$DEST"
+            echo "  artifact lines:"
+            wc -l "$DEST"/*.jsonl 2>/dev/null || echo "  (no jsonl)"
+            echo "::endgroup::"
+          done
+
+      - name: Build catalog.sqlite
+        run: |
+          set -euo pipefail
+          INPUTS=$(find extracts -name '*.jsonl' -size +0c | tr '\n' ' ')
+          if [ -z "$INPUTS" ]; then
+            echo "::error::no non-empty catalog-extract.jsonl found"
+            exit 1
+          fi
+          BUILD_DATE=$(date -u +%Y%m%d-%H%M%S)
+          echo "BUILD_DATE=$BUILD_DATE" >> "$GITHUB_ENV"
+          # shellcheck disable=SC2086
+          ./target/release/cap-catalog-build --out catalog.sqlite $INPUTS
+
+          # 集約 JSONL も emit (非 sqlite consumer 用、optional)
+          cat $INPUTS > catalog-extract.jsonl
+
+          ls -lh catalog.sqlite catalog-extract.jsonl
+
+      - name: Verify catalog.sqlite (smoke)
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sqlite3, sys
+          conn = sqlite3.connect("catalog.sqlite")
+          version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
+          n_sym = conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]
+          n_feat = conn.execute("SELECT COUNT(*) FROM features").fetchone()[0]
+          repos = [r[0] for r in conn.execute("SELECT DISTINCT repo FROM symbols ORDER BY repo")]
+          print(f"schema_version = {version}")
+          print(f"symbols        = {n_sym}")
+          print(f"features       = {n_feat}")
+          print(f"repos          = {repos}")
+          if n_sym == 0:
+            print("::error::0 symbols in catalog.sqlite", file=sys.stderr)
+            sys.exit(1)
+          PY
+
+      - name: Detect R2 secrets
+        id: r2
+        env:
+          API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "$API_TOKEN" ] && [ -n "$ACCOUNT_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLOUDFLARE_API_TOKEN / vars.CLOUDFLARE_ACCOUNT_ID not set — skipping R2 upload (build artifact のみ作成)"
+          fi
+
+      - name: Upload to R2
+        if: steps.r2.outputs.configured == 'true' && !inputs.dry_run
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          BUCKET: ${{ env.BUCKET }}
+          SCHEMA_VERSION: ${{ env.SCHEMA_VERSION }}
+          BUILD_DATE: ${{ env.BUILD_DATE }}
+        run: |
+          set -euo pipefail
+          npm i -g wrangler@latest --no-audit --no-fund
+          PREFIX="v${SCHEMA_VERSION}"
+          for upload in \
+            "catalog.sqlite ${PREFIX}/latest.sqlite" \
+            "catalog.sqlite ${PREFIX}/${BUILD_DATE}.sqlite" \
+            "catalog-extract.jsonl ${PREFIX}/latest.jsonl"
+          do
+            FILE=$(echo "$upload" | cut -d' ' -f1)
+            KEY=$(echo "$upload" | cut -d' ' -f2)
+            echo "::group::PUT r2://${BUCKET}/${KEY}"
+            wrangler r2 object put "${BUCKET}/${KEY}" \
+              --file "$FILE" \
+              --remote
+            echo "::endgroup::"
+          done
+
+      - name: Upload build artifacts (GitHub)
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalog-build
+          path: |
+            catalog.sqlite
+            catalog-extract.jsonl
+          if-no-files-found: error
+          retention-days: 14
