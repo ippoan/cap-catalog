@@ -30,3 +30,15 @@ jobs:
         with:
           python-version: '3.12'
       - run: python3 tests/schema_smoke.py
+
+  # scripts/extract-rust.py の単体テスト。rustdoc JSON の fixture を作って
+  # filter / fq_path / @feature 抽出 / dedupe を gate (rustc nightly 不要)。
+  extract-rust-test:
+    name: extract-rust-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python3 tests/test_extract_rust.py
