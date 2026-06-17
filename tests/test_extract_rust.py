@@ -29,7 +29,17 @@ spec.loader.exec_module(extract_rust)
 
 
 def make_fixture() -> dict:
-    """Minimal rustdoc-shaped document with 4 items."""
+    """Minimal rustdoc-shaped document covering the supported / filtered shapes.
+
+    含むもの:
+      - 0:1 public fn (top-level、paths にあり、keep)
+      - 0:2 public struct (top-level、paths にあり、keep)
+      - 0:3 private fn (visibility=crate → skip)
+      - 0:4 dep crate fn (crate_id != 0 → skip)
+      - 0:5 struct_field (paths にあり kind=struct_field → KIND_ALLOWED に無いので skip)
+      - 0:6 enum variant (paths にあり kind=variant → 同上で skip)
+      - 0:7 derive macro が展開した synthetic method (`paths` に entry 無し → skip)
+    """
     return {
         "root": "0:0",
         "crate_version": "0.1.0",
@@ -40,6 +50,9 @@ def make_fixture() -> dict:
             "0:2": {"crate_id": 0, "path": ["my_crate", "Bar"], "kind": "struct"},
             "0:3": {"crate_id": 0, "path": ["my_crate", "private_helper"], "kind": "function"},
             "0:4": {"crate_id": 1, "path": ["other_crate", "external"], "kind": "function"},
+            "0:5": {"crate_id": 0, "path": ["my_crate", "Bar", "field_x"], "kind": "struct_field"},
+            "0:6": {"crate_id": 0, "path": ["my_crate", "MyEnum", "VariantA"], "kind": "variant"},
+            # 0:7 は `paths` に entry を作らない (= synthetic method の状況再現)
         },
         "index": {
             "0:1": {
@@ -74,6 +87,30 @@ def make_fixture() -> dict:
                 "span": {"filename": "ext/lib.rs", "begin": [1, 1], "end": [2, 2]},
                 "inner": {"function": {}},
             },
+            "0:5": {
+                "crate_id": 0,
+                "name": "field_x",
+                "visibility": "public",
+                "docs": None,
+                "span": {"filename": "src/lib.rs", "begin": [31, 5], "end": [31, 20]},
+                "inner": {"struct_field": {}},
+            },
+            "0:6": {
+                "crate_id": 0,
+                "name": "VariantA",
+                "visibility": "default",
+                "docs": None,
+                "span": {"filename": "src/lib.rs", "begin": [40, 5], "end": [40, 12]},
+                "inner": {"variant": {}},
+            },
+            "0:7": {
+                "crate_id": 0,
+                "name": "from_arg_matches_mut",
+                "visibility": "public",
+                "docs": None,
+                "span": {"filename": "src/lib.rs", "begin": [60, 1], "end": [62, 2]},
+                "inner": {"function": {}},
+            },
         },
     }
 
@@ -97,18 +134,39 @@ def test_map_kind():
 
 def test_iter_items_filters_and_normalizes():
     items = list(extract_rust.iter_items(make_fixture()))
-    names = [i["name"] for i in items]
-    # private_helper (visibility=crate) と external (crate_id!=0) は弾く
-    assert names == ["foo", "Bar"]
-    foo = items[0]
+    names = {i["name"] for i in items}
+    # 残るのは public top-level fn (foo) と struct (Bar) のみ:
+    #   - private_helper (vis=crate) → skip
+    #   - external (crate_id!=0) → skip
+    #   - field_x (kind=struct_field) → skip (KIND_ALLOWED 外)
+    #   - VariantA (kind=variant) → skip (KIND_ALLOWED 外)
+    #   - from_arg_matches_mut (paths に entry 無し = synthetic) → skip
+    assert names == {"foo", "Bar"}
+    foo = next(i for i in items if i["name"] == "foo")
     assert foo["kind"] == "fn"
     assert foo["fq_path"] == "my_crate::foo"
     assert foo["file"] == "src/lib.rs"
     assert foo["line"] == 10
     assert foo["features"] == ["alpha", "beta"]
-    bar = items[1]
+    bar = next(i for i in items if i["name"] == "Bar")
     assert bar["kind"] == "struct"
+    assert bar["fq_path"] == "my_crate::Bar"
     assert bar["features"] == ["gamma"]
+
+
+def test_kind_filter_excludes_struct_field_and_variant():
+    """KIND_ALLOWED に無い kind の item が必ず弾かれる回帰 gate。"""
+    items = list(extract_rust.iter_items(make_fixture()))
+    kinds = {i["kind"] for i in items}
+    assert "struct_field" not in kinds
+    assert "variant" not in kinds
+
+
+def test_synthetic_methods_without_paths_entry_skipped():
+    """`paths` に entry 無い item は drop される (= derive 展開した method 等の noise 抑制)。"""
+    items = list(extract_rust.iter_items(make_fixture()))
+    names = {i["name"] for i in items}
+    assert "from_arg_matches_mut" not in names
 
 
 def test_emit_lines_writes_jsonl_with_required_fields():
