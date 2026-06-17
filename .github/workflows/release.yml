@@ -1,0 +1,44 @@
+name: Release
+
+# tag push (v* / dev-*) で `cap` binary を build + GitHub Releases に upload。
+# ci-workflows `rust-binary-release.yml` の薄い caller。
+#
+# 配布 target:
+#   - x86_64-unknown-linux-gnu  (CCoW コンテナ / 一般 Linux dev)
+#   - aarch64-unknown-linux-gnu (arm64 Linux server / docker)
+#   - aarch64-apple-darwin       (macOS dev laptop)
+#
+# - `v*` tag = stable release (releases/latest に出る)
+# - `dev-*` tag = prerelease (rust-binary-release.yml が tag に `-` を含むと自動 prerelease)
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'dev-*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: ippoan/ci-workflows/.github/workflows/rust-binary-release.yml@main
+    with:
+      bin_name: cap
+      package: cap-cli
+      targets: |
+        [
+          {"target":"x86_64-unknown-linux-gnu","os":"ubuntu-latest","archive":"tar.gz"},
+          {"target":"aarch64-unknown-linux-gnu","os":"ubuntu-latest","archive":"tar.gz","cross":true},
+          {"target":"aarch64-apple-darwin","os":"macos-latest","archive":"tar.gz"}
+        ]
+      release_body: |
+        `cap` CLI release. See [README](https://github.com/ippoan/cap-catalog#cap-cli) for usage.
+
+        ```bash
+        # Linux x86_64
+        curl -L https://github.com/ippoan/cap-catalog/releases/download/${{ github.ref_name }}/cap-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz | tar xz
+
+        # macOS arm64
+        curl -L https://github.com/ippoan/cap-catalog/releases/download/${{ github.ref_name }}/cap-${{ github.ref_name }}-aarch64-apple-darwin.tar.gz | tar xz
+        ```

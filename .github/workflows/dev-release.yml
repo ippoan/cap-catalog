@@ -1,0 +1,26 @@
+name: Dev Release
+
+# main push (Rust ソース or schema 変更) で `dev-N` カウンタ tag を自動採番。
+# 採番された tag は `release.yml` が拾って cap binary を build + GitHub Releases に
+# 上げる (prerelease 扱いで releases/latest には出ない)。
+#
+# 安定版 (`v0.x.y`) を打つときは `gh workflow run tag-release.yml` (= ci-workflows
+# の dispatcher reusable) を手動で叩く前提。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'schema/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
+permissions:
+  contents: write
+
+jobs:
+  dev-release:
+    uses: ippoan/ci-workflows/.github/workflows/dev-tag-release.yml@main
+    secrets:
+      TAG_RELEASE_PAT: ${{ secrets.TAG_RELEASE_PAT }}
