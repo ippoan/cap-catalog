@@ -44,20 +44,39 @@ jobs:
           python-version: '3.12'
       - run: python3 tests/test_extract_rust.py
 
+  # `crates/**/*.rs` の pub item に @feature: doc-comment が付いているかを
+  # **loud-fail** で gate する (Refs ippoan/cap-catalog#24 Phase C dogfood)。
+  # 欠落は `::error` で GitHub Annotations に出る = PR diff 上で赤い行として
+  # 表示される。escape hatch は `pub use` / `pub mod <name>;` / `pub fn main()`
+  # の 3 形のみ (= 自身が能力を持たない構造的宣言)。
+  features-gate:
+    name: features-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run gate (loud-fail on missing @feature:)
+        run: python3 scripts/check-features-gate.py
+      - name: Gate self-test (10 cases)
+        run: python3 tests/test_check_features_gate.py
+
   # CI 完走後に auto-merge を queue (rust-alc-api#427 pattern)。reusable は
   # branch protection の required check を信頼するので caller 側は ci /
-  # schema-smoke / extract-rust-test の全 success を `needs:` で gate する。
+  # schema-smoke / extract-rust-test / features-gate の全 success を `needs:` で gate する。
   # 将来 deploy job (R2 upload 等) が増えたら #391 / #405 を踏まえて needs: に
   # 入れること (= cutover cancel 防止)。
   auto-merge:
     name: Auto Merge
-    needs: [ci, schema-smoke, extract-rust-test]
+    needs: [ci, schema-smoke, extract-rust-test, features-gate]
     if: >-
       always() &&
       github.event_name == 'pull_request' &&
       needs.ci.result == 'success' &&
       needs.schema-smoke.result == 'success' &&
-      needs.extract-rust-test.result == 'success'
+      needs.extract-rust-test.result == 'success' &&
+      needs.features-gate.result == 'success'
     uses: ippoan/ci-workflows/.github/workflows/auto-merge.yml@main
     permissions:
       contents: write
