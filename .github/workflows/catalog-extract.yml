@@ -1,0 +1,38 @@
+name: Catalog Extract (self)
+
+# cap-catalog 自身を最初の caller として dogfood:
+# `ippoan/ci-workflows/.github/workflows/catalog-extract.yml@main` を呼んで
+# `crates/*` の rustdoc JSON → `catalog-extract.jsonl` artifact を吐く。
+#
+# 生成 artifact は cap-catalog-builder の入力として使える (= cap-catalog 自身を
+# 引いた catalog.sqlite を作れる、self-cataloging)。
+#
+# - PR: rust extractor が動くこと + 件数 / fq_path / features の sanity を確認
+# - main push: cache save + artifact を後段 builder workflow が pickup できるよう保持
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/catalog-extract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    uses: ippoan/ci-workflows/.github/workflows/catalog-extract.yml@main
+    with:
+      language: rust
+      # working_directory はリポジトリ root (default '.')
+      # cap_catalog_ref はこの caller 自身 (= 自分の sha を pin したい場合だけ
+      # 上書き、default `main` でこの caller と同じ ref を見る)
