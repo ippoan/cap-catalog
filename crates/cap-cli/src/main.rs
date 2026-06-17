@@ -1,5 +1,7 @@
 //! `cap` CLI entrypoint (#8).
 //!
+//! @feature: cli
+//!
 //! 役割: 手元 download 済 `catalog.sqlite` (= `cap-catalog-build` の出力) を
 //! read-only に query する。クエリは FTS5 (trigram name + porter doc) で一次
 //! 絞り込み、最終的に symbols 表の列を JSON / table で吐く。

@@ -1,5 +1,7 @@
 //! `cap-catalog-build`: catalog-extract.jsonl の集合から catalog.sqlite を build する。
 //!
+//! @feature: catalog-builder
+//!
 //! Refs ippoan/cap-catalog#7.
 //!
 //! 入力: 1 つ以上の `*.jsonl` ファイル (ci-workflows `catalog-extract.yml` artifact
