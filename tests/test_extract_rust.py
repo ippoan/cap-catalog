@@ -169,6 +169,42 @@ def test_synthetic_methods_without_paths_entry_skipped():
     assert "from_arg_matches_mut" not in names
 
 
+def test_crate_root_module_kind_relabeled_to_crate():
+    """rustdoc は binary / lib の crate root (path 長 1) も `module` で出すが、
+    extractor は **crate** に relabel する (= UX 上「sub-module ではなく
+    crate-level entry」と一目で分かる)。深い module は `module` のまま。"""
+    rustdoc = {
+        "paths": {
+            "0:0": {"crate_id": 0, "path": ["my_crate"], "kind": "module"},
+            "0:1": {"crate_id": 0, "path": ["my_crate", "sub"], "kind": "module"},
+        },
+        "index": {
+            "0:0": {
+                "crate_id": 0,
+                "name": "my_crate",
+                "visibility": "public",
+                "docs": "Crate root doc.",
+                "span": {"filename": "src/lib.rs", "begin": [1, 1], "end": [1, 1]},
+                "inner": {"module": {}},
+            },
+            "0:1": {
+                "crate_id": 0,
+                "name": "sub",
+                "visibility": "public",
+                "docs": "Sub module.",
+                "span": {"filename": "src/lib.rs", "begin": [10, 1], "end": [10, 1]},
+                "inner": {"module": {}},
+            },
+        },
+    }
+    items = list(extract_rust.iter_items(rustdoc))
+    by_name = {i["name"]: i for i in items}
+    assert by_name["my_crate"]["kind"] == "crate"
+    assert by_name["my_crate"]["fq_path"] == "my_crate"
+    assert by_name["sub"]["kind"] == "module"
+    assert by_name["sub"]["fq_path"] == "my_crate::sub"
+
+
 def test_emit_lines_writes_jsonl_with_required_fields():
     fixture = make_fixture()
     with tempfile.TemporaryDirectory() as td:
