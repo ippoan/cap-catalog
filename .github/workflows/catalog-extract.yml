@@ -17,13 +17,21 @@ on:
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/extract-rust.py'
+      - '.github/workflows/catalog-extract.yml'
   pull_request:
     branches: [main]
     paths:
       - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'scripts/extract-rust.py'
       - '.github/workflows/catalog-extract.yml'
+  # extractor のロジック自体 (= ippoan/ci-workflows の reusable workflow や
+  # cap-catalog 側の scripts/extract-rust.py) を変えたあとに、PR diff が
+  # paths filter にヒットしない場合の手動 trigger 用。R2 jsonl を refresh
+  # したい時はここから fire する。
+  workflow_dispatch: {}
 
 permissions:
   contents: read
