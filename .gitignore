@@ -1,0 +1,24 @@
+# build artifacts
+/target/
+node_modules/
+dist/
+out/
+
+# local catalog
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
