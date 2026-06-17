@@ -1,0 +1,13 @@
+[package]
+name = "cap-catalog-schema"
+version = "0.1.0"
+description = "Schema DDL + version constant for cap-catalog catalog.sqlite"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+rusqlite.workspace = true
