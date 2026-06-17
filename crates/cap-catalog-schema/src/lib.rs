@@ -3,6 +3,8 @@
 //! `schema/catalog.sql` の中身を `include_str!` で持ち、builder / CLI / UI が
 //! 同一バイナリリテラルを共有する。`SCHEMA_VERSION` は schema 内の
 //! `INSERT INTO schema_version VALUES (1)` と整合する。
+//!
+//! @feature: catalog-schema
 
 #![forbid(unsafe_code)]
 
@@ -10,12 +12,16 @@
 ///
 /// CLI 起動時に `SELECT version FROM schema_version` の値と比較し、低ければ
 /// `warn` する。
+///
+/// @feature: catalog-schema
 pub const SCHEMA_VERSION: u32 = 1;
 
 /// catalog.sqlite を build する DDL (1 ファイル、idempotent)。
 ///
 /// `executescript` で読ませる前提。トリガーで FTS5 を symbols テーブルに
 /// 同期する。
+///
+/// @feature: catalog-schema
 pub const CATALOG_SQL: &str = include_str!("../../../schema/catalog.sql");
 
 #[cfg(test)]
