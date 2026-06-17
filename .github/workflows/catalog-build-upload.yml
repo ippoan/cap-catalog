@@ -12,13 +12,12 @@ name: Catalog Build & Upload (R2)
 #   - workflow_dispatch (= 任意タイミングで手動 build)
 #   - schedule (毎日 03:00 UTC = 12:00 JST、CI で各 repo の caller が走った後を狙う)
 #
-# **必須 secrets (user 側 setup):**
-#   - CLOUDFLARE_API_TOKEN  — R2:Edit 権限の token (Cloudflare Dashboard で発行)
-#   - CLOUDFLARE_ACCOUNT_ID — Account ID
-#   - CAP_CATALOG_R2_BUCKET — R2 bucket 名 (default: `cap-catalog`)
+# **必須 secret (user 側 setup):**
+#   - CAP_CATALOG_R2_TOKEN  — R2:Edit 権限の Cloudflare API token (org-level secret)
 #
-# secrets / vars が未設定なら upload step は `secret-verify-gate` で early skip
-# (= 開発中は build まで走らせて upload は飛ばす)。
+# Account ID / bucket は public な固定値なので workflow に直書き (= R2 endpoint
+# URL 等に既に現れているため secret/var 化する利益が無い)。secret が未設定なら
+# Detect step が configured=false を立てて upload step は skip (build only)。
 
 on:
   workflow_dispatch:
@@ -37,7 +36,9 @@ permissions:
 
 env:
   SCHEMA_VERSION: '1'
-  BUCKET: ${{ vars.CAP_CATALOG_R2_BUCKET || 'cap-catalog' }}
+  BUCKET: 'cap-catalog'
+  # Account ID は public (R2 endpoint URL に現れる) → workflow に直書き。
+  CLOUDFLARE_ACCOUNT_ID: '24b45709d060d957340180e995f0d373'
 
 jobs:
   build:
@@ -129,25 +130,24 @@ jobs:
             sys.exit(1)
           PY
 
-      - name: Detect R2 secrets
+      - name: Detect R2 secret
         id: r2
         env:
-          API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          API_TOKEN: ${{ secrets.CAP_CATALOG_R2_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -n "$API_TOKEN" ] && [ -n "$ACCOUNT_ID" ]; then
+          if [ -n "$API_TOKEN" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::CLOUDFLARE_API_TOKEN / vars.CLOUDFLARE_ACCOUNT_ID not set — skipping R2 upload (build artifact のみ作成)"
+            echo "::warning::CAP_CATALOG_R2_TOKEN not set — skipping R2 upload (build artifact のみ作成)"
           fi
 
       - name: Upload to R2
         if: steps.r2.outputs.configured == 'true' && !inputs.dry_run
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CAP_CATALOG_R2_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
           BUCKET: ${{ env.BUCKET }}
           SCHEMA_VERSION: ${{ env.SCHEMA_VERSION }}
           BUILD_DATE: ${{ env.BUILD_DATE }}
