@@ -1,0 +1,54 @@
+name: Cache Cleanup
+
+# rust-alc-api/.github/workflows/cache-cleanup.yml と同設計:
+#   1. PR closed → その PR の merge ref + branch ref の cache を削除
+#   2. 毎週日曜 03:00 UTC → 最新 10 件以外を削除 (GA 10GB quota 圧迫防止)
+#
+# `actions: write` が要る。GITHUB_TOKEN scope だけで足りる (cross-repo の動きなし)。
+
+on:
+  pull_request:
+    types: [closed]
+  schedule:
+    - cron: '0 3 * * 0' # 毎週日曜 03:00 UTC
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup-branch-cache:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete caches for closed branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          MERGE_REF="refs/pull/${PR_NUMBER}/merge"
+          BRANCH_REF="refs/heads/${HEAD_REF}"
+          for REF in "$MERGE_REF" "$BRANCH_REF"; do
+            echo "Deleting caches for: $REF"
+            gh cache list --ref "$REF" --json id -q '.[].id' | while read id; do
+              gh cache delete "$id" || true
+            done
+          done
+
+  cleanup-stale-cache:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep only 10 newest caches
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh cache list --json id --sort last_used --order desc --limit 1000 -q '.[].id' \
+            | tail -n +11 | while read id; do
+            echo "Deleting cache: $id"
+            gh cache delete "$id" || true
+          done

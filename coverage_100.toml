@@ -1,0 +1,12 @@
+# 100% カバレッジ達成済みファイルの登録簿
+# rust-ci.yml の `ci / coverage 100` job が PR ごとに突合し、未カバー行 (exec
+# count 0) が 1 行でもあれば fail する (= regression gate)。
+#
+# `path` は repo root からの相対 path、suffix match で `cargo llvm-cov --text`
+# 出力 (絶対 path) と照合される (= workspace のどの crate でも書ける)。
+#
+# 新規に 100% を達成したファイルは追加する。
+
+[[files]]
+path = "crates/cap-catalog-schema/src/lib.rs"
+type = "unit"
