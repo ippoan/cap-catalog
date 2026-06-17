@@ -23,19 +23,22 @@ ippoan/ci-workflows) は push 済み。
 
 ## 次にやること (優先順)
 
-### 1. ⛔ ohishi-exp/rust-scraper を session scope に追加してから fmt PR
+### 1. ⛔ ohishi-exp/rust-scraper を session scope に追加してから fmt + clippy PR
 
 cap-catalog#31 の 1/2 (browser-render-rust) を完全 green に持っていくため
-**残るブロッカーは 1 つだけ** = submodule (`ohishi-exp/rust-scraper`) 内の
-rustfmt 違反 3 箇所:
+**残るブロッカーは submodule (`ohishi-exp/rust-scraper`) 内の rustfmt + clippy debt のみ**:
 
-- `rust-scraper/src/etc/scraper.rs` L781 (long `.evaluate(...)` chain)
-- `rust-scraper/src/etc/scraper.rs` L835 (long `ScraperError::NoUsageData(...)`)
-- `rust-scraper/src/service.rs` L50 (long `std::env::var(...).ok().map(...)`)
+- **rustfmt** 3 箇所 (long-line wrap 不足):
+  - `rust-scraper/src/etc/scraper.rs` L781 (long `.evaluate(...)` chain)
+  - `rust-scraper/src/etc/scraper.rs` L835 (long `ScraperError::NoUsageData(...)`)
+  - `rust-scraper/src/service.rs` L50 (long `std::env::var(...).ok().map(...)`)
+- **clippy** 2 件 (`-D warnings` で error 化):
+  - `ext.to_ascii_lowercase() == "csv"` → `ext.eq_ignore_ascii_case("csv")` 提案 (`rust-scraper` 内、約 L102)
+  - もう 1 件 (log で `due to 2 previous errors` 表示、要確認)
 
 ohishi-exp/rust-scraper を session scope に add → branch
-`claude/eager-dijkstra-vrz1jx` を切る → `cargo fmt` → PR →
-merge → browser-render-rust 側の submodule pointer を bump (commit して
+`claude/eager-dijkstra-vrz1jx` を切る → `cargo fmt --all` + `cargo clippy --fix`
+→ PR → merge → browser-render-rust 側の submodule pointer を bump (commit して
 ohishi-exp/browser-render-rust#2 に push) で全 job green になるはず。
 
 `mcp__claude-code-remote__*` (add_repo / list_repos) ツールが本 session
