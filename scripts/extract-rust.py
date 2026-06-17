@@ -65,7 +65,7 @@ KIND_ALIASES: dict[str, str] = {
 #   - derive macro が展開した synthetic method (rustdoc は `inner.function` で出す
 #     が、`paths` に entry を持たないため後段の fq_path フィルタで落ちる)
 KIND_ALLOWED: frozenset[str] = frozenset(
-    {"fn", "struct", "enum", "trait", "module", "type", "const", "static", "macro", "union"}
+    {"fn", "struct", "enum", "trait", "module", "type", "const", "static", "macro", "union", "crate"}
 )
 
 
@@ -129,6 +129,12 @@ def iter_items(rustdoc: dict) -> Iterator[dict]:
         if not path_segments:
             continue
         fq_path = "::".join(path_segments)
+
+        # rustdoc は binary / lib の crate root (path 長 1 = `["my_crate"]`) も
+        # `module` kind で出してくるが、UX 上は **crate** として扱う方が自然
+        # (= 「sub-module ではなく crate-level entry」と一目で分かる)。
+        if kind == "module" and len(path_segments) == 1:
+            kind = "crate"
 
         # span
         span = item.get("span") or {}
