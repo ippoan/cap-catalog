@@ -94,6 +94,9 @@ version = "0.1.0"
 dependencies = [
  "cap-catalog-schema",
  "clap",
+ "rusqlite",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
