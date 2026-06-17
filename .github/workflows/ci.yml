@@ -1,8 +1,9 @@
 name: CI
 
+# CI は PR のみで走る。main push の再 CI は同じ commit を 2 度測ることに
+# なり (PR 通過 = 既に green) 無駄、かつ main runs の見栄えが汚れる。
+# branch protection の required check は PR 上の run で満たされる。
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
